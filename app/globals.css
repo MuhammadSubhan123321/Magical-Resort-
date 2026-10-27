@@ -1,0 +1,64 @@
+:root {
+  --color-bg-dark: #091111;
+  --color-bg-surface: #101c1c;
+  --color-bg-surface-elevated: #162525;
+  --color-primary: #1a3636;
+  --color-primary-light: #40534c;
+  --color-accent: #d6c0b3;
+  --color-accent-light: #f7f4ee;
+  --color-sand: #e7e8d8;
+  --color-gold: #c5a880;
+  --color-text-light: #f3f4f6;
+  --color-text-muted: #9ca3af;
+  --color-text-dark: #1f2937;
+  --color-white: #ffffff;
+  --font-serif: 'Playfair Display', Georgia, 'Times New Roman', serif;
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --border-radius-sm: 4px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+  --transition-normal: 0.3s ease;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  /* Do not set scroll-behavior: smooth to prevent fighting GSAP ScrollTrigger scrub */
+  scroll-behavior: auto;
+  font-family: var(--font-sans);
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-light);
+  overflow-x: hidden;
+  /* Reserve scrollbar gutter so layout never shifts and fixed 100vw video stays flush */
+  scrollbar-gutter: stable;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.6;
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-light);
+  overflow-x: hidden;
+}
+
+main {
+  flex: 1;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  cursor: pointer;
+  font-family: inherit;
+  border: none;
+  outline: none;
+}

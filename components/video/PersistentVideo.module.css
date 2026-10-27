@@ -1,0 +1,76 @@
+.videoBackdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  overflow: hidden;
+  background: radial-gradient(circle at center, #162c2c 0%, #0d1a1a 100%);
+  pointer-events: none;
+}
+
+.video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  z-index: 1;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+.overlayGradient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  background: radial-gradient(circle at center, rgba(9, 17, 17, 0.1) 0%, rgba(9, 17, 17, 0.55) 100%),
+              linear-gradient(180deg, rgba(9, 17, 17, 0.4) 0%, transparent 35%, transparent 65%, rgba(9, 17, 17, 0.7) 100%);
+  pointer-events: none;
+}
+
+.videoErrorFallback {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem;
+  background: radial-gradient(circle at center, rgba(22, 44, 44, 0.95) 0%, rgba(9, 17, 17, 0.98) 100%);
+  color: var(--color-sand);
+}
+
+.fallbackIcon {
+  font-size: 2.5rem;
+  color: var(--color-gold);
+  margin-bottom: 1rem;
+}
+
+.fallbackTitle {
+  font-family: var(--font-serif);
+  font-size: 1.8rem;
+  color: var(--color-sand);
+  margin-bottom: 0.5rem;
+  letter-spacing: 0.1em;
+}
+
+.fallbackText {
+  font-size: 0.95rem;
+  color: var(--color-text-muted);
+  max-width: 480px;
+  line-height: 1.6;
+}
