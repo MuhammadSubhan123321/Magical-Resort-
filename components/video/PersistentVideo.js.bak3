@@ -1,0 +1,380 @@
+'use client';
+
+import { createContext, useContext, useRef, useState, useEffect, useCallback } from 'react';
+import styles from './PersistentVideo.module.css';
+
+export const PLAYBACK_MODES = {
+  PHASE1_SCROLL: 'PHASE1_SCROLL',
+  PHASE1_AUTO: 'PHASE1_AUTO',
+  PHASE2_SCROLL: 'PHASE2_SCROLL',
+  PHASE2_AUTO_LOOP: 'PHASE2_AUTO_LOOP',
+};
+
+const VideoTimelineContext = createContext(null);
+
+export function PersistentVideoProvider({ children }) {
+  const videoRef = useRef(null);
+  const [hasVideoError, setHasVideoError] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [duration, setDuration] = useState(170.32);
+
+  // Active segment settings (Phase 1 default 0-30s; Phase 2 default 30-170.2s)
+  const isTourInitial = typeof window !== 'undefined' && window.location.pathname.startsWith('/tour');
+  const segmentRef = useRef({
+    start: isTourInitial ? 30 : 0,
+    end: isTourInitial ? 170.2 : 30,
+  });
+
+  // Authoritative Playback State Machine
+  const modeRef = useRef(isTourInitial ? PLAYBACK_MODES.PHASE2_SCROLL : PLAYBACK_MODES.PHASE1_SCROLL);
+  const [playbackMode, setPlaybackModeState] = useState(modeRef.current);
+
+  const targetTimeRef = useRef(isTourInitial ? 30 : 0);
+  const pendingTargetRef = useRef(null);
+  const isSeekingRef = useRef(false);
+  const seekTimeoutRef = useRef(null);
+  const rafIdRef = useRef(null);
+  const lastAssignedTimeRef = useRef(-1);
+  const onHandoffRef = useRef(null);
+  const isLoopingRef = useRef(false);
+  const hasPrimedRef = useRef(false);
+
+  // Set the handoff callback for automatic Phase 1 -> Phase 2 transition
+  const setOnHandoff = useCallback((cb) => {
+    onHandoffRef.current = cb;
+  }, []);
+
+  // Central Mode Switcher: handles clean transitions between scroll-control and autoplay
+  const setPlaybackMode = useCallback((newMode) => {
+    if (modeRef.current === newMode) return;
+
+    modeRef.current = newMode;
+    setPlaybackModeState(newMode);
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (newMode === PLAYBACK_MODES.PHASE1_AUTO) {
+      // Entering Phase 1 Auto Mode: cancel pending seek rAFs and play smoothly
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+      isSeekingRef.current = false;
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(() => {});
+      }
+    } else if (newMode === PLAYBACK_MODES.PHASE1_SCROLL || newMode === PLAYBACK_MODES.PHASE2_SCROLL) {
+      // Entering Scroll Mode: pause playback so scrubbing has exclusive control
+      if (!video.paused) {
+        video.pause();
+      }
+    }
+  }, []);
+
+  // Responsive, non-stalling seek executor for scroll-controlled playback
+  const executeSeek = useCallback((target) => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Never seek while in Phase 1 auto-play mode to prevent fighting
+    const mode = modeRef.current;
+    if (mode === PLAYBACK_MODES.PHASE1_AUTO) {
+      return;
+    }
+
+    const dur = video.duration && !Number.isNaN(video.duration) ? video.duration : 170.32;
+    const clampedTarget = Math.max(0, Math.min(target, dur - 0.05));
+
+    // Avoid redundant seek if target matches current position or last assignment
+    if (
+      Math.abs(video.currentTime - clampedTarget) < 0.012 &&
+      Math.abs(lastAssignedTimeRef.current - clampedTarget) < 0.012
+    ) {
+      pendingTargetRef.current = null;
+      return;
+    }
+
+    // If browser decoder is currently busy decoding an in-flight seek,
+    // do NOT interrupt it with another seek (which causes 2-3s decoder stalls).
+    // Instead, retain ONLY the latest target to dispatch as soon as decoder finishes.
+    if (isSeekingRef.current || video.seeking) {
+      pendingTargetRef.current = clampedTarget;
+      return;
+    }
+
+    try {
+      isSeekingRef.current = true;
+      lastAssignedTimeRef.current = clampedTarget;
+      pendingTargetRef.current = null;
+      video.currentTime = clampedTarget;
+
+      // Watchdog: release seek lock if browser drops 'seeked' event
+      if (seekTimeoutRef.current) clearTimeout(seekTimeoutRef.current);
+      seekTimeoutRef.current = setTimeout(() => {
+        isSeekingRef.current = false;
+        if (pendingTargetRef.current !== null) {
+          const next = pendingTargetRef.current;
+          pendingTargetRef.current = null;
+          executeSeek(next);
+        }
+      }, 140);
+    } catch {
+      isSeekingRef.current = false;
+    }
+  }, []);
+
+  // Schedule seek on next animation frame
+  const scheduleSeek = useCallback((time) => {
+    // Only schedule seeks in scroll-controlled modes
+    const mode = modeRef.current;
+    if (mode === PLAYBACK_MODES.PHASE1_AUTO) {
+      return;
+    }
+
+    targetTimeRef.current = time;
+
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+    }
+
+    rafIdRef.current = requestAnimationFrame(() => {
+      executeSeek(targetTimeRef.current);
+    });
+  }, [executeSeek]);
+
+  const handleSeeked = useCallback(() => {
+    if (seekTimeoutRef.current) {
+      clearTimeout(seekTimeoutRef.current);
+      seekTimeoutRef.current = null;
+    }
+    isSeekingRef.current = false;
+
+    // Immediately dispatch the latest pending target if user kept scrolling during decode
+    if (pendingTargetRef.current !== null) {
+      const next = pendingTargetRef.current;
+      pendingTargetRef.current = null;
+      executeSeek(next);
+    }
+  }, [executeSeek]);
+
+  // Set the active segment for the current route
+  const setSegment = useCallback((config) => {
+    console.log('[PersistentVideo] setSegment called with:', JSON.stringify(config), new Error().stack);
+    const video = videoRef.current;
+    const current = video ? video.currentTime : 0;
+    const start = config.start ?? (current > 0 ? current : 0);
+    const end = config.end ?? (video?.duration || 170.2);
+
+    segmentRef.current = {
+      start,
+      end,
+    };
+
+    if (video) {
+      // Only seek if video is far outside bounds (e.g. entering /tour directly at 0s)
+      if (current < start - 1.2 || current > end + 1.2) {
+        targetTimeRef.current = start;
+        if (video.readyState >= 1) {
+          video.currentTime = start;
+          lastAssignedTimeRef.current = start;
+        }
+      } else {
+        // Already at or near start: keep target and assigned time aligned with current frame without re-seeking
+        targetTimeRef.current = current;
+        lastAssignedTimeRef.current = current;
+      }
+    } else {
+      targetTimeRef.current = start;
+    }
+  }, []);
+
+  // Seek relative to current segment progress [0.0 - 1.0]
+  const seek = useCallback((progress) => {
+    // Locked out during automatic continuation in Phase 1
+    const mode = modeRef.current;
+    if (mode === PLAYBACK_MODES.PHASE1_AUTO) {
+      return;
+    }
+
+    const seg = segmentRef.current;
+    const p = Math.max(0, Math.min(1, progress));
+    const target = seg.start + p * (seg.end - seg.start);
+    scheduleSeek(target);
+  }, [scheduleSeek]);
+
+  // Seek to absolute timestamp in seconds
+  const seekDirect = useCallback((seconds) => {
+    const mode = modeRef.current;
+    if (mode === PLAYBACK_MODES.PHASE1_AUTO) {
+      return;
+    }
+    scheduleSeek(seconds);
+  }, [scheduleSeek]);
+
+  const playLoop = useCallback(() => {}, []);
+  const pause = useCallback(() => {
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    if (seekTimeoutRef.current) {
+      clearTimeout(seekTimeoutRef.current);
+      seekTimeoutRef.current = null;
+    }
+    pendingTargetRef.current = null;
+    isSeekingRef.current = false;
+    const video = videoRef.current;
+    if (video && !video.paused) {
+      video.pause();
+    }
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const onMetadata = () => {
+      if (video.duration && !Number.isNaN(video.duration)) {
+        setDuration(video.duration);
+      }
+      setIsReady(true);
+
+      // Only prime the decoder once on initial startup, never re-prime during navigation
+      if (hasPrimedRef.current) return;
+      hasPrimedRef.current = true;
+
+      const target = targetTimeRef.current;
+
+      // Prime the video decoder so seeking responds instantly on the very first scroll
+      const playPromise = video.play();
+      if (playPromise !== undefined) {
+        playPromise
+          .then(() => {
+            // If in a scroll mode, pause; if in auto mode, stay playing
+            if (modeRef.current === PLAYBACK_MODES.PHASE1_SCROLL || modeRef.current === PLAYBACK_MODES.PHASE2_SCROLL) {
+              video.pause();
+            }
+            if (target > 0) {
+              video.currentTime = target;
+              lastAssignedTimeRef.current = target;
+            } else {
+              video.currentTime = 0;
+              lastAssignedTimeRef.current = 0;
+            }
+          })
+          .catch(() => {
+            if (target > 0) {
+              video.currentTime = target;
+              lastAssignedTimeRef.current = target;
+            }
+          });
+      } else {
+        if (target > 0) {
+          video.currentTime = target;
+          lastAssignedTimeRef.current = target;
+        }
+      }
+    };
+
+    const onError = (e) => {
+      console.error('Persistent video playback error:', e);
+      setHasVideoError(true);
+    };
+
+    // Continuous time monitor for Phase 1 auto handoff (if ever triggered)
+    const onTimeUpdate = () => {
+      const mode = modeRef.current;
+
+      // Phase 1 Automatic Continuation (approaching 30.0s handoff)
+      if (mode === PLAYBACK_MODES.PHASE1_AUTO) {
+        if (video.currentTime >= 29.85) {
+          if (onHandoffRef.current) {
+            onHandoffRef.current();
+          }
+        }
+      }
+    };
+
+    const onEnded = () => {
+      // Phase 2 remains stopped on its final frame without auto-looping
+    };
+
+    video.addEventListener('loadedmetadata', onMetadata);
+    video.addEventListener('canplay', onMetadata);
+    video.addEventListener('seeked', handleSeeked);
+    video.addEventListener('timeupdate', onTimeUpdate);
+    video.addEventListener('ended', onEnded);
+    video.addEventListener('error', onError);
+
+    if (video.readyState >= 1) {
+      onMetadata();
+    }
+
+    return () => {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+      video.removeEventListener('loadedmetadata', onMetadata);
+      video.removeEventListener('canplay', onMetadata);
+      video.removeEventListener('seeked', handleSeeked);
+      video.removeEventListener('timeupdate', onTimeUpdate);
+      video.removeEventListener('ended', onEnded);
+      video.removeEventListener('error', onError);
+    };
+  }, [handleSeeked]);
+
+  const value = {
+    videoRef,
+    playbackMode,
+    setPlaybackMode,
+    setOnHandoff,
+    setSegment,
+    seek,
+    seekDirect,
+    playLoop,
+    pause,
+    hasVideoError,
+    isReady,
+    duration,
+  };
+
+  return (
+    <VideoTimelineContext.Provider value={value}>
+      {/* Full-viewport Persistent Background Video */}
+      <div className={styles.videoBackdrop} aria-hidden="true">
+        <video
+          ref={videoRef}
+          src="/videos/vid.mp4"
+          playsInline
+          muted
+          preload="auto"
+          className={styles.video}
+          onError={() => setHasVideoError(true)}
+        />
+        <div className={styles.overlayGradient} />
+
+        {hasVideoError && (
+          <div className={styles.videoErrorFallback}>
+            <div className={styles.fallbackIcon}>✦</div>
+            <h3 className={styles.fallbackTitle}>Magical Resort</h3>
+            <p className={styles.fallbackText}>
+              The sanctuary drone video could not be decoded. Please verify your browser's MP4 hardware acceleration.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {children}
+    </VideoTimelineContext.Provider>
+  );
+}
+
+export function useVideoTimeline() {
+  const ctx = useContext(VideoTimelineContext);
+  if (!ctx) {
+    throw new Error('useVideoTimeline must be used within PersistentVideoProvider');
+  }
+  return ctx;
+}

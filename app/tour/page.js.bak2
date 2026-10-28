@@ -1,0 +1,491 @@
+'use client';
+
+import { useEffect, useRef } from 'react';
+import Link from 'next/link';
+import { gsap, ScrollTrigger } from '@/lib/gsap';
+import CategoryCard from '@/components/cards/CategoryCard';
+import { useVideoTimeline, PLAYBACK_MODES } from '@/components/video/PersistentVideo';
+import TextSplit from '@/components/animations/TextSplit';
+import styles from './page.module.css';
+
+export default function TourPage() {
+  const containerRef = useRef(null);
+  const pinWrapperRef = useRef(null);
+
+  const { videoRef, setSegment, seek, setPlaybackMode, isReady } = useVideoTimeline();
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // Reset scroll to top and prevent browser auto-scroll jump
+    if (typeof window !== 'undefined') {
+      if ('scrollRestoration' in history) {
+        history.scrollRestoration = 'manual';
+      }
+      window.scrollTo(0, 0);
+      ScrollTrigger.clearScrollMemory();
+      try {
+        sessionStorage.setItem('hasVisitedTour', 'true');
+        sessionStorage.setItem('hasSeenResortIntro', 'true');
+      } catch {}
+    }
+
+    const container = containerRef.current;
+    const pinWrapper = pinWrapperRef.current;
+    if (!container || !pinWrapper) return;
+
+    const video = videoRef.current;
+    // Exactly preserve the video timestamp displayed at the end of Phase 1
+    // (fallback to 30.0s if /tour is opened directly in address bar)
+    const startTimestamp = (video && video.currentTime > 0) ? video.currentTime : 30.0;
+
+    // Assign Segment 2 (startTimestamp to 170.2s) — continuing cleanly without any jump
+    setSegment({
+      start: startTimestamp,
+      end: 170.2,
+    });
+
+    let ctx = null;
+
+    const setupTour = () => {
+      if (!isMounted) return;
+      if (ctx) ctx.revert();
+
+      ctx = gsap.context(() => {
+        // Pinned Video Scrub Timeline (+1550% for gradual cinematic pacing)
+        const tl = gsap.timeline({
+          scrollTrigger: {
+            trigger: pinWrapper,
+            start: 'top top',
+            end: '+=1550%',
+            pin: true,
+            scrub: 1.0, // Smooth velocity-aware easing, acceleration, and deceleration
+            anticipatePin: 1,
+            onLeave: () => {
+              if (!isMounted) return;
+              // Leave video stopped on its final frame without auto-play or looping
+              setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
+              seek(1.0);
+            },
+          },
+        });
+
+        // Authoritative continuous scroll-controlled scrubbing across the entire Phase 2 timeline
+        tl.eventCallback('onUpdate', () => {
+          if (!isMounted) return;
+          const p = tl.progress();
+          setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
+          seek(p);
+        });
+
+        // Ensure Phase 2 starts immediately in scroll mode at current handoff timestamp
+        setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
+        seek(tl.progress());
+
+        // Initial setup for overlay containers, letter-by-letter characters, and floating cards
+        // CRITICAL: Overlays 3 to 7 and the floating cards MUST start completely hidden and un-rendered
+        gsap.set(['.overlay-dining', '.overlay-children', '.overlay-rooms', '.overlay-rooftop', '.overlay-sea', '.overlay-cards'], { autoAlpha: 0 });
+        gsap.set(['.dining-heading-char', '.dining-support-char', '.children-heading-char', '.children-support-char', '.rooms-heading-char', '.rooms-support-char', '.rooftop-heading-char', '.rooftop-support-char', '.sea-heading-char', '.sea-support-char'], { opacity: 0, y: 6 });
+        gsap.set('.floating-category-card', { opacity: 0, y: 25, pointerEvents: 'none' });
+
+        // Tour Scroll Cue fades out as scroll starts (0 to 0.4)
+        tl.to('.tour-scroll-cue', {
+          opacity: 0,
+          y: -15,
+          duration: 0.5,
+          ease: 'power2.out',
+        }, 0);
+
+        // -------------------------------------------------------------------
+        // OVERLAY 3: Exceptional Dining (00:35 / t=35s, offset=5s, p=0.036 -> pos 0.36 in 0-10)
+        // Brief 2-3s overlay: entrance at 0.3, peak at 0.7, exits by 1.6
+        // -------------------------------------------------------------------
+        tl.to('.overlay-dining', { autoAlpha: 1, duration: 0.01 }, 0.3);
+
+        tl.to('.dining-heading-char', {
+          opacity: 1,
+          y: 0,
+          duration: 0.3,
+          stagger: 0.016,
+          ease: 'power2.out',
+        }, 0.32);
+
+        tl.to('.dining-support-char', {
+          opacity: 1,
+          y: 0,
+          duration: 0.25,
+          stagger: 0.007,
+          ease: 'power2.out',
+        }, 0.5);
+
+        // Exit letter-by-letter
+        tl.to('.dining-heading-char', {
+          opacity: 0,
+          y: -8,
+          duration: 0.25,
+          stagger: 0.01,
+          ease: 'power2.in',
+        }, 1.4);
+
+        tl.to('.dining-support-char', {
+          opacity: 0,
+          y: -6,
+          duration: 0.2,
+          stagger: 0.006,
+          ease: 'power2.in',
+        }, 1.45);
+
+        tl.to('.overlay-dining', { autoAlpha: 0, duration: 0.01 }, 1.7);
+
+        // -------------------------------------------------------------------
+        // OVERLAY 4: Fun for Every Generation (01:06 / t=66s, offset=36s, p=0.257 -> pos 2.57 in 0-10)
+        // Brief 2-3s overlay: entrance at 2.4, peak at 2.8, exits by 3.6
+        // -------------------------------------------------------------------
+        tl.to('.overlay-children', { autoAlpha: 1, duration: 0.01 }, 2.4);
+
+        tl.to('.children-heading-char', {
+          opacity: 1,
+          y: 0,
+          duration: 0.3,
+          stagger: 0.016,
+          ease: 'power2.out',
+        }, 2.42);
+
+        tl.to('.children-support-char', {
+          opacity: 1,
+          y: 0,
+          duration: 0.25,
+          stagger: 0.007,
+          ease: 'power2.out',
+        }, 2.6);
+
+        // Exit letter-by-letter
+        tl.to('.children-heading-char', {
+          opacity: 0,
+          y: -8,
+          duration: 0.25,
+          stagger: 0.01,
+          ease: 'power2.in',
+        }, 3.4);
+
+        tl.to('.children-support-char', {
+          opacity: 0,
+          y: -6,
+          duration: 0.2,
+          stagger: 0.006,
+          ease: 'power2.in',
+        }, 3.45);
+
+        tl.to('.overlay-children', { autoAlpha: 0, duration: 0.01 }, 3.7);
+
+        // -------------------------------------------------------------------
+        // OVERLAY 5: Your Private Sanctuary (01:43 / t=103s, offset=73s, p=0.521 -> pos 5.21 in 0-10)
+        // Brief 2-3s overlay: entrance at 4.9, peak at 5.3, exits by 6.0
+        // -------------------------------------------------------------------
+        tl.to('.overlay-rooms', { autoAlpha: 1, duration: 0.01 }, 4.9);
+
+        tl.to('.rooms-heading-char', {
+          opacity: 1,
+          y: 0,
+          duration: 0.3,
+          stagger: 0.016,
+          ease: 'power2.out',
+        }, 4.92);
+
+        tl.to('.rooms-support-char', {
+          opacity: 1,
+          y: 0,
+          duration: 0.25,
+          stagger: 0.007,
+          ease: 'power2.out',
+        }, 5.1);
+
+        // Exit letter-by-letter
+        tl.to('.rooms-heading-char', {
+          opacity: 0,
+          y: -8,
+          duration: 0.25,
+          stagger: 0.01,
+          ease: 'power2.in',
+        }, 5.8);
+
+        tl.to('.rooms-support-char', {
+          opacity: 0,
+          y: -6,
+          duration: 0.2,
+          stagger: 0.006,
+          ease: 'power2.in',
+        }, 5.85);
+
+        tl.to('.overlay-rooms', { autoAlpha: 0, duration: 0.01 }, 6.1);
+
+        // -------------------------------------------------------------------
+        // OVERLAY 6: Elevate Your Experience (01:58 / t=118s, offset=88s, p=0.628 -> pos 6.28 in 0-10)
+        // Brief 2-3s overlay: entrance at 6.1, peak at 6.5, exits by 7.2
+        // -------------------------------------------------------------------
+        tl.to('.overlay-rooftop', { autoAlpha: 1, duration: 0.01 }, 6.2);
+
+        tl.to('.rooftop-heading-char', {
+          opacity: 1,
+          y: 0,
+          duration: 0.3,
+          stagger: 0.016,
+          ease: 'power2.out',
+        }, 6.22);
+
+        tl.to('.rooftop-support-char', {
+          opacity: 1,
+          y: 0,
+          duration: 0.25,
+          stagger: 0.007,
+          ease: 'power2.out',
+        }, 6.4);
+
+        // Exit letter-by-letter
+        tl.to('.rooftop-heading-char', {
+          opacity: 0,
+          y: -8,
+          duration: 0.25,
+          stagger: 0.01,
+          ease: 'power2.in',
+        }, 7.0);
+
+        tl.to('.rooftop-support-char', {
+          opacity: 0,
+          y: -6,
+          duration: 0.2,
+          stagger: 0.006,
+          ease: 'power2.in',
+        }, 7.05);
+
+        tl.to('.overlay-rooftop', { autoAlpha: 0, duration: 0.01 }, 7.3);
+
+        // -------------------------------------------------------------------
+        // OVERLAY 7: Where Serenity Meets the Sea (02:35 / t=155s, offset=125s, p=0.892 -> pos 8.92 in 0-10)
+        // Middle-Right: Enters at 8.0, peaks around 8.4, and completely exits by 8.95
+        // MUST disappear completely before cards fade in at 9.1
+        // -------------------------------------------------------------------
+        tl.to('.overlay-sea', { autoAlpha: 1, duration: 0.01 }, 8.0);
+
+        tl.to('.sea-heading-char', {
+          opacity: 1,
+          y: 0,
+          duration: 0.3,
+          stagger: 0.016,
+          ease: 'power2.out',
+        }, 8.02);
+
+        tl.to('.sea-support-char', {
+          opacity: 1,
+          y: 0,
+          duration: 0.25,
+          stagger: 0.007,
+          ease: 'power2.out',
+        }, 8.2);
+
+        // Exit letter-by-letter: completely hidden by 8.95
+        tl.to('.sea-heading-char', {
+          opacity: 0,
+          y: -8,
+          duration: 0.25,
+          stagger: 0.01,
+          ease: 'power2.in',
+        }, 8.75);
+
+        tl.to('.sea-support-char', {
+          opacity: 0,
+          y: -6,
+          duration: 0.2,
+          stagger: 0.006,
+          ease: 'power2.in',
+        }, 8.8);
+
+        tl.to('.overlay-sea', { autoAlpha: 0, duration: 0.01 }, 8.95);
+
+        // -------------------------------------------------------------------
+        // SIX COMPACT CATEGORY CARDS (Floating directly over the moving sea video)
+        // Appears smoothly from 9.1 to 9.5 over the continuing footage
+        // Video continues advancing underneath cards during automatic playback and looping
+        // -------------------------------------------------------------------
+        tl.to('.overlay-cards', { autoAlpha: 1, duration: 0.01 }, 9.1);
+
+        tl.to('.floating-category-card', {
+          opacity: 1,
+          y: 0,
+          duration: 0.6,
+          stagger: 0.08,
+          pointerEvents: 'auto',
+          ease: 'power2.out',
+        }, 9.15);
+
+      }, container);
+
+      ScrollTrigger.refresh();
+    };
+
+    setupTour();
+
+    return () => {
+      isMounted = false;
+      if (ctx) ctx.revert();
+      ScrollTrigger.getAll().forEach(st => {
+        if (st.vars.trigger === pinWrapper) {
+          st.kill();
+        }
+      });
+    };
+  }, [setSegment, seek, setPlaybackMode, videoRef]);
+
+  // When video metadata is ready, recalculate ScrollTrigger pin boundaries
+  useEffect(() => {
+    if (isReady && typeof window !== 'undefined') {
+      ScrollTrigger.refresh();
+    }
+  }, [isReady]);
+
+  return (
+    <div ref={containerRef} className={styles.container}>
+      {/* Discreet Navigation Bar */}
+      <header className={styles.topBar}>
+        <span className={styles.brandLogo}>Magical Resort</span>
+        <Link
+          href="/"
+          className={styles.backLink}
+          scroll={true}
+          onClick={() => {
+            try {
+              sessionStorage.setItem('returnToStory', 'true');
+            } catch {}
+          }}
+        >
+          <span>&larr;</span>
+          <span>Back to Story</span>
+        </Link>
+      </header>
+
+      {/* Pinned Video Tour Viewport */}
+      <div ref={pinWrapperRef} className={styles.pinWrapper}>
+        <div className={styles.tourContent}>
+          {/* Scroll Cue at bottom */}
+          <div className={`tour-scroll-cue ${styles.scrollCue}`}>
+            <span>Scroll to Tour Grounds</span>
+            <div className={styles.scrollLine} />
+          </div>
+
+          {/* Overlay 3 — Dining (00:35, Middle-Right) */}
+          <div className={`overlay-dining ${styles.moment} ${styles.posMiddleRight}`}>
+            <h2 className={styles.momentHeading}>
+              <TextSplit text="Exceptional Dining" letterClassName="dining-heading-char" />
+            </h2>
+            <p className={styles.momentSupport}>
+              <TextSplit
+                text="Discover flavours made for memorable moments."
+                letterClassName="dining-support-char"
+              />
+            </p>
+          </div>
+
+          {/* Overlay 4 — Children's Area (01:06, Middle-Right) */}
+          <div className={`overlay-children ${styles.moment} ${styles.posMiddleRight}`}>
+            <h2 className={styles.momentHeading}>
+              <TextSplit text="Fun for Every Generation" letterClassName="children-heading-char" />
+            </h2>
+            <p className={styles.momentSupport}>
+              <TextSplit
+                text="Make room for moments everyone will remember."
+                letterClassName="children-support-char"
+              />
+            </p>
+          </div>
+
+          {/* Overlay 5 — Room or Suite (01:43, Middle-Right) */}
+          <div className={`overlay-rooms ${styles.moment} ${styles.posMiddleRight}`}>
+            <h2 className={styles.momentHeading}>
+              <TextSplit text="Your Private Sanctuary" letterClassName="rooms-heading-char" />
+            </h2>
+            <p className={styles.momentSupport}>
+              <TextSplit
+                text="Unwind in a space designed for effortless comfort."
+                letterClassName="rooms-support-char"
+              />
+            </p>
+          </div>
+
+          {/* Overlay 6 — Rooftop (01:58, Middle-Left) */}
+          <div className={`overlay-rooftop ${styles.moment} ${styles.posMiddleLeft}`}>
+            <h2 className={styles.momentHeading}>
+              <TextSplit text="Elevate Your Experience" letterClassName="rooftop-heading-char" />
+            </h2>
+            <p className={styles.momentSupport}>
+              <TextSplit
+                text="A different perspective on resort living."
+                letterClassName="rooftop-support-char"
+              />
+            </p>
+          </div>
+
+          {/* Overlay 7 — Sea and Beach Finale (02:35, Middle-Right) */}
+          <div className={`overlay-sea ${styles.moment} ${styles.posMiddleRight}`}>
+            <h2 className={styles.momentHeading}>
+              <TextSplit text="Where Serenity Meets the Sea" letterClassName="sea-heading-char" />
+            </h2>
+            <p className={styles.momentSupport}>
+              <TextSplit
+                text="Let the horizon become your escape."
+                letterClassName="sea-support-char"
+              />
+            </p>
+          </div>
+
+          {/* Six Compact Category Cards Floating Directly Over Moving Sea Video */}
+          <div className={`overlay-cards ${styles.floatingCardsOverlay}`}>
+            <div className={styles.floatingCardsGrid}>
+              <CategoryCard
+                className="floating-category-card"
+                badge="COMING SOON"
+                icon="🛏️"
+                title="Rooms & Suites"
+                description="Discover your private retreat, designed for comfort and tranquility."
+              />
+              <CategoryCard
+                className="floating-category-card"
+                badge="COMING SOON"
+                icon="🍽️"
+                title="Dining"
+                description="Savour memorable flavours in an inviting coastal setting."
+              />
+              <CategoryCard
+                className="floating-category-card"
+                badge="COMING SOON"
+                icon="🏊"
+                title="Swimming Pool"
+                description="Unwind beside the water and enjoy the tropical surroundings."
+              />
+              <CategoryCard
+                className="floating-category-card"
+                badge="COMING SOON"
+                icon="🌿"
+                title="Spa & Wellness"
+                description="Make space for relaxation, balance, and personal well-being."
+              />
+              <CategoryCard
+                className="floating-category-card"
+                badge="COMING SOON"
+                icon="🥂"
+                title="Events & Celebrations"
+                description="Bring meaningful gatherings and special occasions to life."
+              />
+              <CategoryCard
+                className="floating-category-card"
+                badge="COMING SOON"
+                icon="⛵"
+                title="Activities & Experiences"
+                description="Explore memorable moments for every kind of getaway."
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

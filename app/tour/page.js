@@ -12,7 +12,7 @@ export default function TourPage() {
   const containerRef = useRef(null);
   const pinWrapperRef = useRef(null);
 
-  const { setSegment, seek, setPlaybackMode, isReady } = useVideoTimeline();
+  const { videoRef, setSegment, seek, setPlaybackMode, getHandoffTimestamp, isReady } = useVideoTimeline();
 
   useEffect(() => {
     let isMounted = true;
@@ -34,9 +34,12 @@ export default function TourPage() {
     const pinWrapper = pinWrapperRef.current;
     if (!container || !pinWrapper) return;
 
-    // Assign Segment 2 (30.0s to 170.2s) — continuing cleanly from Phase 1 ending timestamp
+    // Exactly preserve the video timestamp captured at the end of Phase 1
+    const startTimestamp = getHandoffTimestamp();
+
+    // Assign Segment 2 (startTimestamp to 170.2s) — continuing cleanly without any jump
     setSegment({
-      start: 30,
+      start: startTimestamp,
       end: 170.2,
     });
 
@@ -54,40 +57,28 @@ export default function TourPage() {
             start: 'top top',
             end: '+=1550%',
             pin: true,
-            scrub: 1.0, // Smooth velocity-aware easing, acceleration, and deceleration
+            scrub: true, // Immediate 1:1 scroll responsiveness without artificial inertia lag
             anticipatePin: 1,
             onLeave: () => {
               if (!isMounted) return;
-              // Reaching bottom firmly activates automatic beach/loop mode
-              setPlaybackMode(PLAYBACK_MODES.PHASE2_AUTO_LOOP);
+              // Leave video stopped on its final frame without auto-play or looping
+              setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
+              seek(1.0);
             },
           },
         });
 
-        // Authoritative sync: switches deliberately between scroll-control and beach auto-loop
+        // Authoritative continuous scroll-controlled scrubbing across the entire Phase 2 timeline
         tl.eventCallback('onUpdate', () => {
           if (!isMounted) return;
           const p = tl.progress();
-
-          // Deliberate Mode Boundary:
-          // Mode C: Earlier Phase 2 scenes under scroll control (0% to ~88%, 30.0s to ~153s)
-          // Mode D: Final Sea/Beach scene under automatic forward playback & looping (88% to 100%)
-          if (p < 0.88) {
-            setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
-            seek(p);
-          } else {
-            // Beach scene auto-continuation & looping
-            setPlaybackMode(PLAYBACK_MODES.PHASE2_AUTO_LOOP);
-          }
+          setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
+          seek(p);
         });
 
-        // Ensure Phase 2 starts immediately at 30.0s in scroll mode
-        if (tl.progress() < 0.88) {
-          setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
-          seek(tl.progress());
-        } else {
-          setPlaybackMode(PLAYBACK_MODES.PHASE2_AUTO_LOOP);
-        }
+        // Ensure Phase 2 starts immediately in scroll mode at current handoff timestamp
+        setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
+        seek(tl.progress());
 
         // Initial setup for overlay containers, letter-by-letter characters, and floating cards
         // CRITICAL: Overlays 3 to 7 and the floating cards MUST start completely hidden and un-rendered
@@ -341,7 +332,7 @@ export default function TourPage() {
         }
       });
     };
-  }, [setSegment, seek, setPlaybackMode]);
+  }, [setSegment, seek, setPlaybackMode, getHandoffTimestamp, videoRef]);
 
   // When video metadata is ready, recalculate ScrollTrigger pin boundaries
   useEffect(() => {

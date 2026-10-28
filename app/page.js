@@ -15,7 +15,7 @@ export default function StoryPage() {
   const pinWrapperRef = useRef(null);
   const hasNavigatedRef = useRef(false);
 
-  const { setSegment, seek, setPlaybackMode, setOnHandoff, isReady } = useVideoTimeline();
+  const { videoRef, setSegment, seek, setPlaybackMode, setOnHandoff, captureHandoff, pause, isReady } = useVideoTimeline();
 
   const handleIntroComplete = useCallback(() => {
     // Refresh ScrollTrigger after intro exit and layout reflow
@@ -62,13 +62,21 @@ export default function StoryPage() {
       end: 30,
     });
 
+    const triggerHandoff = () => {
+      // Don't auto-navigate when user just returned from Tour
+      if (isReturning) return;
+      if (hasNavigatedRef.current) return;
+      hasNavigatedRef.current = true;
+      pause();
+      const current = videoRef.current?.currentTime;
+      captureHandoff(typeof current === 'number' && current > 5 ? current : 30.0);
+      router.push('/tour');
+    };
+
     // Register automatic handoff callback to navigate seamlessly to Phase 2
     setOnHandoff(() => {
       if (!isMounted) return;
-      if (!hasNavigatedRef.current) {
-        hasNavigatedRef.current = true;
-        router.push('/tour');
-      }
+      triggerHandoff();
     });
 
     // Prefetch Phase 2 so route swap is instantaneous
@@ -88,31 +96,21 @@ export default function StoryPage() {
             start: 'top top',
             end: '+=770%',
             pin: true,
-            scrub: 1.0, // Smooth velocity-aware inertia and gentle deceleration
+            scrub: true, // Immediate 1:1 scroll responsiveness without artificial inertia lag
             anticipatePin: 1,
             onLeave: () => {
               if (!isMounted) return;
-              // Reaching end of scroll enters automatic continuation toward handoff
-              setPlaybackMode(PLAYBACK_MODES.PHASE1_AUTO);
+              triggerHandoff();
             },
           },
         });
 
-        // Authoritative sync: switches deliberately between scroll-control and auto-continuation
+        // Continuous scroll-controlled seeking across the entire Phase 1 scroll range
         tl.eventCallback('onUpdate', () => {
           if (!isMounted) return;
           const p = tl.progress();
-
-          // Deliberate Mode Boundary:
-          // Mode A: Scroll-controlled video (0% to ~95%)
-          // Mode B: Automatic continuation (final ~5%, 95% to 100%)
-          if (p < 0.95) {
-            setPlaybackMode(PLAYBACK_MODES.PHASE1_SCROLL);
-            seek(p);
-          } else {
-            // Enter automatic forward continuation toward 30.0s handoff
-            setPlaybackMode(PLAYBACK_MODES.PHASE1_AUTO);
-          }
+          setPlaybackMode(PLAYBACK_MODES.PHASE1_SCROLL);
+          seek(p);
         });
 
         // Ensure initial frame is locked in immediately
@@ -384,7 +382,7 @@ export default function StoryPage() {
                   className={styles.enterButton}
                   scroll={true}
                   onClick={() => {
-                    hasNavigatedRef.current = true;
+                    triggerHandoff();
                   }}
                 >
                   <span>Enter the Resort</span>
