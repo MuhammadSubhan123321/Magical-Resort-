@@ -14,17 +14,21 @@ export default function StoryPage() {
   const containerRef = useRef(null);
   const pinWrapperRef = useRef(null);
   const hasNavigatedRef = useRef(false);
+  const isReturningRef = useRef(false);
 
-  const { videoRef, setSegment, seek, setPlaybackMode, setOnHandoff, captureHandoff, pause, isReady } = useVideoTimeline();
+  const { videoRef, setSegment, seek, seekDirect, setPlaybackMode, setOnHandoff, captureHandoff, getHandoffTimestamp, pause, isReady, hasSeenIntro, setHasSeenIntro } = useVideoTimeline();
 
   const handleIntroComplete = useCallback(() => {
+    setHasSeenIntro(true);
     // Refresh ScrollTrigger after intro exit and layout reflow
     if (typeof window !== 'undefined') {
+      window.scrollTo(0, 0);
+      window.__lenis?.scrollTo(0, { immediate: true });
       requestAnimationFrame(() => {
         ScrollTrigger.refresh();
       });
     }
-  }, []);
+  }, [setHasSeenIntro]);
 
   useEffect(() => {
     let isMounted = true;
@@ -36,10 +40,11 @@ export default function StoryPage() {
       if (typeof window !== 'undefined') {
         isReturning = sessionStorage.getItem('returnToStory') === 'true';
         if (isReturning) {
-          sessionStorage.removeItem('returnToStory');
+          setHasSeenIntro(true);
         }
       }
-    } catch {}
+    } catch { }
+    isReturningRef.current = isReturning;
 
     // Reset scroll to top unless returning from Tour
     if (typeof window !== 'undefined') {
@@ -48,6 +53,8 @@ export default function StoryPage() {
       }
       if (!isReturning) {
         window.scrollTo(0, 0);
+        window.__lenis?.scrollTo(0, { immediate: true });
+        seek(0);
       }
       ScrollTrigger.clearScrollMemory();
     }
@@ -64,12 +71,14 @@ export default function StoryPage() {
 
     const triggerHandoff = () => {
       // Don't auto-navigate when user just returned from Tour
-      if (isReturning) return;
+      if (isReturningRef.current) return;
       if (hasNavigatedRef.current) return;
       hasNavigatedRef.current = true;
-      pause();
-      const current = videoRef.current?.currentTime;
-      captureHandoff(typeof current === 'number' && current > 5 ? current : 30.0);
+      captureHandoff();
+      if (typeof window !== 'undefined') {
+        window.__lenis?.scrollTo(0, { immediate: true });
+        window.scrollTo(0, 0);
+      }
       router.push('/tour');
     };
 
@@ -100,7 +109,9 @@ export default function StoryPage() {
             anticipatePin: 1,
             onLeave: () => {
               if (!isMounted) return;
-              triggerHandoff();
+              // Leave video stopped on its final frame without auto-navigating or looping
+              setPlaybackMode(PLAYBACK_MODES.PHASE1_SCROLL);
+              seek(1.0);
             },
           },
         });
@@ -109,12 +120,21 @@ export default function StoryPage() {
         tl.eventCallback('onUpdate', () => {
           if (!isMounted) return;
           const p = tl.progress();
+          if (p < 0.95) {
+            isReturningRef.current = false;
+          }
+          // While returning and positioned at CTA, keep exact handoff frame locked
+          if (isReturningRef.current) {
+            return;
+          }
           setPlaybackMode(PLAYBACK_MODES.PHASE1_SCROLL);
           seek(p);
         });
 
-        // Ensure initial frame is locked in immediately
-        seek(tl.progress());
+        // Ensure initial frame is locked in immediately only on fresh entry, not when returning from Tour
+        if (!isReturning) {
+          seek(tl.progress());
+        }
 
         // Initial setup for overlay containers and letter-by-letter characters
         // CRITICAL: Overlays 1 & 2 and CTA must start completely hidden and un-rendered
@@ -149,30 +169,34 @@ export default function StoryPage() {
           ease: 'power2.out',
         }, 0.1);
 
-        tl.to('.hero-para-char', {
-          opacity: 1,
-          y: 0,
-          duration: 0.35,
-          stagger: 0.008,
-          ease: 'power2.out',
-        }, 0.4);
-
         // Exit: letter-by-letter exit upward for opening title (completes before 00:10)
         tl.to('.hero-title-char', {
           opacity: 0,
           y: -8,
-          duration: 0.3,
-          stagger: 0.01,
+          duration: 0.15,
+          stagger: 0.005,
           ease: 'power2.in',
-        }, 1.7);
+        }, 1.5);
+
+        tl.fromTo('.hero-para-char',
+          { opacity: 0, y: 6 },
+          {
+            opacity: 1,
+            y: 0,
+            duration: 0.35,
+            stagger: 0.008,
+            ease: 'power2.out',
+          },
+          0.4
+        );
 
         tl.to('.hero-para-char', {
           opacity: 0,
           y: -6,
-          duration: 0.25,
-          stagger: 0.006,
+          duration: 0.15,
+          stagger: 0.003,
           ease: 'power2.in',
-        }, 1.75);
+        }, 1.52);
 
         tl.to('.hero-est', {
           opacity: 0,
@@ -276,15 +300,26 @@ export default function StoryPage() {
         );
 
         // If returning from Tour, position at the end of Phase 1 handoff
+        // and show the exact same frame the user last saw before navigating to Page 2
         if (isReturning) {
           ScrollTrigger.refresh();
           const st = tl.scrollTrigger;
           if (st) {
             window.scrollTo(0, st.end);
-            tl.progress(1);
-            setPlaybackMode(PLAYBACK_MODES.PHASE1_SCROLL);
-            seek(1);
+            window.__lenis?.scrollTo(st.end, { immediate: true });
+            if (typeof st.scroll === 'function') {
+              st.scroll(st.end);
+            }
           }
+          tl.progress(1);
+          setPlaybackMode(PLAYBACK_MODES.PHASE1_SCROLL);
+          const handoffTs = getHandoffTimestamp();
+          seekDirect(handoffTs > 1 ? handoffTs : 30.0, true);
+          requestAnimationFrame(() => {
+            try {
+              sessionStorage.removeItem('returnToStory');
+            } catch { }
+          });
         }
       }, container);
 
@@ -314,7 +349,9 @@ export default function StoryPage() {
   return (
     <>
       {/* Cinematic Golden Sunrise Intro */}
-      <GoldenSunriseIntro onComplete={handleIntroComplete} />
+      {!hasSeenIntro && (
+        <GoldenSunriseIntro onComplete={handleIntroComplete} />
+      )}
 
       <div ref={containerRef} className={styles.container}>
         <div ref={pinWrapperRef} className={styles.pinWrapper}>
@@ -380,9 +417,14 @@ export default function StoryPage() {
                 <Link
                   href="/tour"
                   className={styles.enterButton}
-                  scroll={true}
+                  scroll={false}
                   onClick={() => {
-                    triggerHandoff();
+                    hasNavigatedRef.current = true;
+                    captureHandoff();
+                    if (typeof window !== 'undefined') {
+                      window.__lenis?.scrollTo(0, { immediate: true });
+                      window.scrollTo(0, 0);
+                    }
                   }}
                 >
                   <span>Enter the Resort</span>

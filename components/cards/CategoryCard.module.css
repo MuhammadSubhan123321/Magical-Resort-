@@ -1,5 +1,18 @@
+.cardWrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  pointer-events: none;
+  border-radius: var(--border-radius-md);
+  will-change: clip-path, transform, opacity;
+}
+
 .card {
   position: relative;
+  width: 100%;
+  height: 100%;
   background: rgba(10, 20, 20, 0.62);
   border: 1px solid rgba(197, 168, 128, 0.22);
   border-radius: var(--border-radius-md);
