@@ -12,13 +12,15 @@ export default function CategoryCard({
   className = '',
 }) {
   return (
-    <div className={`${styles.card} ${className}`}>
-      <div className={styles.cardTopRow}>
-        {icon && <span className={styles.icon}>{icon}</span>}
-        {badge && <span className={styles.badge}>{badge}</span>}
+    <div className={`${styles.cardWrapper} ${className}`}>
+      <div className={styles.card}>
+        <div className={styles.cardTopRow}>
+          {icon && <span className={styles.icon}>{icon}</span>}
+          {badge && <span className={styles.badge}>{badge}</span>}
+        </div>
+        <h3 className={styles.title}>{title}</h3>
+        <p className={styles.description}>{description}</p>
       </div>
-      <h3 className={styles.title}>{title}</h3>
-      <p className={styles.description}>{description}</p>
     </div>
   );
 }

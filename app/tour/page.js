@@ -8,14 +8,50 @@ import { useVideoTimeline, PLAYBACK_MODES } from '@/components/video/PersistentV
 import TextSplit from '@/components/animations/TextSplit';
 import styles from './page.module.css';
 
+// Alternating diagonal corner masks for category cards:
+// 1. Top-Left, 2. Top-Right, 3. Bottom-Left, 4. Bottom-Right, 5. Top-Left, 6. Top-Right
+const CORNER_MASKS = [
+  // Card 1: Top-Left corner expanding down-right
+  {
+    from: 'polygon(0% 0%, 0% 0%, 0% 0%, 0% 0%)',
+    to: 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)',
+  },
+  // Card 2: Top-Right corner expanding down-left
+  {
+    from: 'polygon(100% 0%, 100% 0%, 100% 0%, 100% 0%)',
+    to: 'polygon(100% 0%, 0% 0%, 0% 100%, 100% 100%)',
+  },
+  // Card 3: Bottom-Left corner expanding up-right
+  {
+    from: 'polygon(0% 100%, 0% 100%, 0% 100%, 0% 100%)',
+    to: 'polygon(0% 100%, 0% 0%, 100% 0%, 100% 100%)',
+  },
+  // Card 4: Bottom-Right corner expanding up-left
+  {
+    from: 'polygon(100% 100%, 100% 100%, 100% 100%, 100% 100%)',
+    to: 'polygon(100% 100%, 0% 100%, 0% 0%, 100% 0%)',
+  },
+  // Card 5: Top-Left corner (repeat)
+  {
+    from: 'polygon(0% 0%, 0% 0%, 0% 0%, 0% 0%)',
+    to: 'polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%)',
+  },
+  // Card 6: Top-Right corner (repeat)
+  {
+    from: 'polygon(100% 0%, 100% 0%, 100% 0%, 100% 0%)',
+    to: 'polygon(100% 0%, 0% 0%, 0% 100%, 100% 100%)',
+  },
+];
+
 export default function TourPage() {
   const containerRef = useRef(null);
   const pinWrapperRef = useRef(null);
 
-  const { videoRef, setSegment, seek, setPlaybackMode, getHandoffTimestamp, isReady } = useVideoTimeline();
+  const { videoRef, setSegment, seekTour, setPlaybackMode, getHandoffTimestamp, isReady, setHasSeenIntro } = useVideoTimeline();
 
   useEffect(() => {
     let isMounted = true;
+    setHasSeenIntro(true);
 
     // Reset scroll to top and prevent browser auto-scroll jump
     if (typeof window !== 'undefined') {
@@ -23,11 +59,12 @@ export default function TourPage() {
         history.scrollRestoration = 'manual';
       }
       window.scrollTo(0, 0);
+      window.__lenis?.scrollTo(0, { immediate: true });
       ScrollTrigger.clearScrollMemory();
       try {
         sessionStorage.setItem('hasVisitedTour', 'true');
         sessionStorage.setItem('hasSeenResortIntro', 'true');
-      } catch {}
+      } catch { }
     }
 
     const container = containerRef.current;
@@ -37,10 +74,10 @@ export default function TourPage() {
     // Exactly preserve the video timestamp captured at the end of Phase 1
     const startTimestamp = getHandoffTimestamp();
 
-    // Assign Segment 2 (startTimestamp to 170.2s) — continuing cleanly without any jump
+    // Assign Segment 2 (startTimestamp to 163.2s) — ends 2s earlier for level, untilted equal sea view
     setSegment({
       start: startTimestamp,
-      end: 170.2,
+      end: 163.2,
     });
 
     let ctx = null;
@@ -55,15 +92,15 @@ export default function TourPage() {
           scrollTrigger: {
             trigger: pinWrapper,
             start: 'top top',
-            end: '+=1550%',
+            end: '+=2880%',
             pin: true,
-            scrub: true, // Immediate 1:1 scroll responsiveness without artificial inertia lag
+            // Immediate 1:1 scrub ensures video scrubbing stops immediately when scrolling stops
+            scrub: true,
             anticipatePin: 1,
             onLeave: () => {
               if (!isMounted) return;
-              // Leave video stopped on its final frame without auto-play or looping
               setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
-              seek(1.0);
+              seekTour(1.0);
             },
           },
         });
@@ -73,18 +110,35 @@ export default function TourPage() {
           if (!isMounted) return;
           const p = tl.progress();
           setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
-          seek(p);
+          seekTour(p);
         });
 
         // Ensure Phase 2 starts immediately in scroll mode at current handoff timestamp
+        // Do NOT re-seek at progress 0 — setSegment already aligned the video to the
+        // handoff frame. Re-seeking would cause a visible frame jump.
         setPlaybackMode(PLAYBACK_MODES.PHASE2_SCROLL);
-        seek(tl.progress());
 
         // Initial setup for overlay containers, letter-by-letter characters, and floating cards
         // CRITICAL: Overlays 3 to 7 and the floating cards MUST start completely hidden and un-rendered
         gsap.set(['.overlay-dining', '.overlay-children', '.overlay-rooms', '.overlay-rooftop', '.overlay-sea', '.overlay-cards'], { autoAlpha: 0 });
         gsap.set(['.dining-heading-char', '.dining-support-char', '.children-heading-char', '.children-support-char', '.rooms-heading-char', '.rooms-support-char', '.rooftop-heading-char', '.rooftop-support-char', '.sea-heading-char', '.sea-support-char'], { opacity: 0, y: 6 });
-        gsap.set('.floating-category-card', { opacity: 0, y: 25, pointerEvents: 'none' });
+
+        // Respect reduced-motion preferences if requested by user
+        const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        // Each card gets a unique diagonal corner mask (top-left, top-right, bottom-left, bottom-right, repeat)
+        const cardEls = container.querySelectorAll('.floating-category-card');
+        if (prefersReducedMotion) {
+          gsap.set(cardEls, { opacity: 0, clipPath: 'none', pointerEvents: 'none' });
+        } else {
+          cardEls.forEach((el, i) => {
+            gsap.set(el, {
+              clipPath: CORNER_MASKS[i % CORNER_MASKS.length].from,
+              opacity: 0,
+              pointerEvents: 'none',
+            });
+          });
+        }
 
         // Tour Scroll Cue fades out as scroll starts (0 to 0.4)
         tl.to('.tour-scroll-cue', {
@@ -301,20 +355,45 @@ export default function TourPage() {
         tl.to('.overlay-sea', { autoAlpha: 0, duration: 0.01 }, 8.95);
 
         // -------------------------------------------------------------------
-        // SIX COMPACT CATEGORY CARDS (Floating directly over the moving sea video)
-        // Appears smoothly from 9.1 to 9.5 over the continuing footage
-        // Video continues advancing underneath cards during automatic playback and looping
+        // SIX COMPACT CATEGORY CARDS — Fast diagonal corner-mask reveal
+        //
+        // Timing calculation (video segment: startTimestamp to 163.2s):
+        //   Video duration ≈ 133.2s (assuming ~30s handoff)
+        //   Card reveal begins at TL 9.55 (progress ~0.901) → video ~150.0s
+        //   All 6 cards fully revealed by TL 10.35 → video ~160.1s (3.1s before 163.2 endpoint)
+        //   Final hold from TL 10.35 to 10.60: viewers enjoy the level, untilted equal sea view
+        //
+        // Each card reveals from an alternating diagonal corner:
+        //   Card 1: top-left  →  Card 2: top-right  →  Card 3: bottom-left
+        //   Card 4: bottom-right  →  Card 5: top-left  →  Card 6: top-right
+        //
+        // Duration: 0.30 per card, stagger: 0.10, ease: power2.out
         // -------------------------------------------------------------------
-        tl.to('.overlay-cards', { autoAlpha: 1, duration: 0.01 }, 9.1);
+        tl.to('.overlay-cards', { autoAlpha: 1, duration: 0.01 }, 9.50);
 
-        tl.to('.floating-category-card', {
-          opacity: 1,
-          y: 0,
-          duration: 0.6,
-          stagger: 0.08,
-          pointerEvents: 'auto',
-          ease: 'power2.out',
-        }, 9.15);
+        if (prefersReducedMotion) {
+          tl.to(cardEls, {
+            opacity: 1,
+            duration: 0.35,
+            stagger: 0.08,
+            pointerEvents: 'auto',
+            ease: 'power1.out',
+          }, 9.55);
+        } else {
+          cardEls.forEach((el, i) => {
+            const mask = CORNER_MASKS[i % CORNER_MASKS.length];
+            tl.to(el, {
+              clipPath: mask.to,
+              opacity: 1,
+              pointerEvents: 'auto',
+              duration: 0.30,
+              ease: 'power2.out',
+            }, 9.55 + i * 0.10);
+          });
+        }
+
+        // Hold fully revealed cards over the final level sea video for comfortable viewing
+        tl.to({}, { duration: 0.25 }, 10.35);
 
       }, container);
 
@@ -332,7 +411,7 @@ export default function TourPage() {
         }
       });
     };
-  }, [setSegment, seek, setPlaybackMode, getHandoffTimestamp, videoRef]);
+  }, [setSegment, seekTour, setPlaybackMode, getHandoffTimestamp, videoRef]);
 
   // When video metadata is ready, recalculate ScrollTrigger pin boundaries
   useEffect(() => {
@@ -349,11 +428,12 @@ export default function TourPage() {
         <Link
           href="/"
           className={styles.backLink}
-          scroll={true}
+          scroll={false}
           onClick={() => {
+            setHasSeenIntro(true);
             try {
               sessionStorage.setItem('returnToStory', 'true');
-            } catch {}
+            } catch { }
           }}
         >
           <span>&larr;</span>

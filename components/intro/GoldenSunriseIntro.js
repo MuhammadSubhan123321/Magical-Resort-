@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { gsap } from '@/lib/gsap';
+import { useVideoTimeline } from '@/components/video/PersistentVideo';
 import styles from './GoldenSunriseIntro.module.css';
 
 /**
@@ -15,50 +16,13 @@ export default function GoldenSunriseIntro({ onComplete }) {
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
 
-  const [shouldRender, setShouldRender] = useState(false);
+  const { hasSeenIntro, setHasSeenIntro } = useVideoTimeline();
 
   useEffect(() => {
-    let shouldSkip = false;
-    try {
-      if (typeof window !== 'undefined') {
-        const navType =
-          window.performance?.getEntriesByType?.('navigation')?.[0]?.type;
-
-        if (navType === 'reload') {
-          // Manual reload: clear flags so developer/user can always see and test the intro
-          sessionStorage.removeItem('hasSeenResortIntro');
-          sessionStorage.removeItem('hasVisitedTour');
-        }
-
-        // Skip intro ONLY if user is navigating back from /tour within the same
-        // SPA session (client-side navigation sets this flag). A fresh tab
-        // (navType === 'navigate') should always show the intro.
-        const isClientNav = sessionStorage.getItem('hasVisitedTour') === 'true';
-        const isFreshTab = navType === 'navigate';
-
-        if (isFreshTab) {
-          // Fresh tab / address-bar entry: always show the intro
-          sessionStorage.removeItem('hasVisitedTour');
-          shouldSkip = false;
-        } else {
-          // SPA back-navigation from /tour: skip intro
-          shouldSkip = isClientNav;
-        }
-      }
-    } catch {
-      shouldSkip = false;
-    }
-
-    if (shouldSkip) {
+    if (hasSeenIntro) {
       if (onCompleteRef.current) onCompleteRef.current();
       return;
     }
-
-    setShouldRender(true);
-  }, []);
-
-  useEffect(() => {
-    if (!shouldRender) return;
 
     const overlay = overlayRef.current;
     if (!overlay) return;
@@ -66,20 +30,25 @@ export default function GoldenSunriseIntro({ onComplete }) {
     // Prevent background scrolling while intro is active
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    if (typeof window !== 'undefined') {
+      window.scrollTo(0, 0);
+      window.__lenis?.scrollTo(0, { immediate: true });
+      window.__lenis?.stop?.();
+    }
 
     let isFinished = false;
     const finishIntro = () => {
       if (isFinished) return;
       isFinished = true;
 
-      try {
-        sessionStorage.setItem('hasSeenResortIntro', 'true');
-      } catch {
-        // Ignore storage exceptions
-      }
+      setHasSeenIntro(true);
 
       document.body.style.overflow = originalOverflow;
-      setShouldRender(false);
+      if (typeof window !== 'undefined') {
+        window.__lenis?.start?.();
+        window.scrollTo(0, 0);
+        window.__lenis?.scrollTo(0, { immediate: true });
+      }
       if (onCompleteRef.current) {
         onCompleteRef.current();
       }
@@ -203,11 +172,14 @@ export default function GoldenSunriseIntro({ onComplete }) {
     return () => {
       clearTimeout(fallbackTimer);
       document.body.style.overflow = originalOverflow;
+      if (typeof window !== 'undefined') {
+        window.__lenis?.start?.();
+      }
       ctx.revert();
     };
-  }, [shouldRender]);
+  }, [hasSeenIntro, setHasSeenIntro]);
 
-  if (!shouldRender) {
+  if (hasSeenIntro) {
     return null;
   }
 

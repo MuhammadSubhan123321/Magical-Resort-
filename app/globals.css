@@ -30,7 +30,9 @@ html {
   /* Do not set scroll-behavior: smooth to prevent fighting GSAP ScrollTrigger scrub */
   scroll-behavior: auto;
   font-family: var(--font-sans);
-  background-color: var(--color-bg-dark);
+  /* Transparent so the persistent fixed video backdrop is always visible — prevents
+     the black flash that occurs when Next.js swaps route content between renders */
+  background-color: transparent;
   color: var(--color-text-light);
   overflow-x: hidden;
   /* Reserve scrollbar gutter so layout never shifts and fixed 100vw video stays flush */
@@ -42,7 +44,8 @@ body {
   display: flex;
   flex-direction: column;
   line-height: 1.6;
-  background-color: var(--color-bg-dark);
+  /* Transparent: video backdrop is fixed behind all content, always visible */
+  background-color: transparent;
   color: var(--color-text-light);
   overflow-x: hidden;
 }
